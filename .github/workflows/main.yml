@@ -1,0 +1,24 @@
+name: CI/CD Pipeline # Name of the workflow visible in the GitHub Actions tab
+
+on:
+  push:
+    branches:
+      - main # Trigger this pipeline whenever code is pushed to the 'main' branch
+  workflow_dispatch: # Allows you to manually trigger the workflow from the GitHub UI
+
+# Define variables for reuse across jobs
+env:
+  DOCKER_IMAGE_NAME: prithiv22/fastapi-app:latest
+  TAG: latest
+  APP_PORT: 8000
+  EC2_USER: ec2-user
+
+jobs:
+  # JOB 1: Continuous Integration (CI)
+  build-and-push:
+    # ... steps to build and push the Docker image ...
+
+  # JOB 2: Continuous Deployment (CD)
+  deploy:
+    needs: build-and-push # Ensures deployment waits for CI to finish
+    # ... steps to SSH into EC2 and run Docker commands ...
