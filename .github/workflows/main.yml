@@ -1,24 +1,77 @@
-name: CI/CD Pipeline # Name of the workflow visible in the GitHub Actions tab
+name: CI/CD Pipeline
 
 on:
   push:
     branches:
-      - main # Trigger this pipeline whenever code is pushed to the 'main' branch
-  workflow_dispatch: # Allows you to manually trigger the workflow from the GitHub UI
+      - main
+  workflow_dispatch: # Allows manual trigger
 
-# Define variables for reuse across jobs
+# Define variables for reuse
 env:
-  DOCKER_IMAGE_NAME: prithiv22/fastapi-app:latest
+  DOCKER_IMAGE_NAME: prithiv22/fastapi-app 
   TAG: latest
   APP_PORT: 8000
-  EC2_USER: ec2-user
+  EC2_USER: ec2-user 
 
 jobs:
-  # JOB 1: Continuous Integration (CI)
+  # ----------------------------------------------------
+  # JOB 1: Build & Push Docker Image
+  # ----------------------------------------------------
   build-and-push:
-    # ... steps to build and push the Docker image ...
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-  # JOB 2: Continuous Deployment (CD)
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.DOCKER_IMAGE_NAME }}:${{ env.TAG }}
+          cache-from: type=gha
+
+      - name: Print image name for next job
+        run: echo "Pushed image: ${{ env.DOCKER_IMAGE_NAME }}:${{ env.TAG }}"
+
+  # ----------------------------------------------------
+  # JOB 2: Deploy to EC2
+  # ----------------------------------------------------
   deploy:
-    needs: build-and-push # Ensures deployment waits for CI to finish
-    # ... steps to SSH into EC2 and run Docker commands ...
+    needs: build-and-push # This job only runs after the image is built and pushed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AWS_EC2_HOST }}
+          username: ${{ env.EC2_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            echo "Deployment started."
+
+            # 1. Pull the new Docker image
+            docker pull ${{ env.DOCKER_IMAGE_NAME }}:${{ env.TAG }}
+
+            # 2. Stop and remove the old container (if it exists)
+            # -f (force) removes a container even if it's running. '|| true' prevents the workflow from failing if the container isn't there.
+            docker rm -f my-fastapi-app-container || true
+
+            # 3. Run the new container
+            # -d: detached mode
+            # --rm: remove the container when it exits
+            # -p: host:container port mapping (8000:8000)
+            # --name: a consistent name for stopping/removing
+            docker run -d \
+              --rm \
+              -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} \
+              --name my-fastapi-app-container \
+              ${{ env.DOCKER_IMAGE_NAME }}:${{ env.TAG }}
+
+            echo "Deployment finished. Check public IP on port 8000."
